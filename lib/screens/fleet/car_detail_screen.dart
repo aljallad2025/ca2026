@@ -3,7 +3,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme.dart';
 import '../../models/car_model.dart';
+import '../../models/review_model.dart';
 import '../../services/car_service.dart';
+import '../../services/auth_service.dart';
+import '../../services/favorite_service.dart';
+import '../../services/review_service.dart';
+import '../auth/login_screen.dart';
+import '../booking/booking_screen.dart';
 
 /// TODO: غيّر هذا الرقم لرقم المبيعات/الشورووم الحقيقي (بصيغة دولية بدون +)
 const String kSalesWhatsappNumber = '973XXXXXXXX';
@@ -19,8 +25,14 @@ class CarDetailScreen extends StatefulWidget {
 
 class _CarDetailScreenState extends State<CarDetailScreen> {
   final CarService _carService = CarService();
+  final AuthService _authService = AuthService();
+  final FavoriteService _favoriteService = FavoriteService();
+  final ReviewService _reviewService = ReviewService();
+
   CarModel? _car;
   bool _loading = true;
+  bool _isFavorite = false;
+  List<ReviewModel> _reviews = [];
 
   @override
   void initState() {
@@ -30,10 +42,34 @@ class _CarDetailScreenState extends State<CarDetailScreen> {
 
   Future<void> _load() async {
     final car = await _carService.getCarById(widget.carId);
+    final reviews = await _reviewService.getReviewsForCar(widget.carId);
+
+    bool isFav = false;
+    final userId = _authService.currentUser?.id;
+    if (userId != null) {
+      isFav = await _favoriteService.isFavorite(userId, widget.carId);
+    }
+
     setState(() {
       _car = car;
+      _reviews = reviews;
+      _isFavorite = isFav;
       _loading = false;
     });
+  }
+
+  Future<void> _toggleFavorite() async {
+    final userId = _authService.currentUser?.id;
+    if (userId == null) {
+      final result = await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+      if (result != true) return;
+    }
+    final uid = _authService.currentUser?.id;
+    if (uid == null) return;
+    await _favoriteService.toggleFavorite(uid, widget.carId);
+    setState(() => _isFavorite = !_isFavorite);
   }
 
   Future<void> _callSales() async {
@@ -54,10 +90,16 @@ class _CarDetailScreenState extends State<CarDetailScreen> {
     }
   }
 
-  void _bookNow() {
-    // TODO: تنقل لشاشة Booking الفعلية بعد بنائها
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('شاشة الحجز قيد البناء')),
+  Future<void> _bookNow(CarModel car) async {
+    if (!_authService.isLoggedIn) {
+      final result = await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+      if (result != true) return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => BookingScreen(car: car)),
     );
   }
 
@@ -84,6 +126,15 @@ class _CarDetailScreenState extends State<CarDetailScreen> {
             backgroundColor: AppColors.speedBlack,
             expandedHeight: 260,
             pinned: true,
+            actions: [
+              IconButton(
+                onPressed: _toggleFavorite,
+                icon: Icon(
+                  _isFavorite ? Icons.favorite : Icons.favorite_border,
+                  color: _isFavorite ? AppColors.speedRed : AppColors.white,
+                ),
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: car.images.isNotEmpty
                   ? CachedNetworkImage(
@@ -118,6 +169,43 @@ class _CarDetailScreenState extends State<CarDetailScreen> {
                   ),
                   const SizedBox(height: 20),
                   if (car.description != null) Text(car.description!),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'التقييمات',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  if (_reviews.isEmpty)
+                    const Text('لا توجد تقييمات بعد',
+                        style: TextStyle(color: AppColors.greyMedium))
+                  else
+                    ..._reviews.map((r) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.star,
+                                  size: 16, color: AppColors.warning),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text('${r.rating} / 5',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w600)),
+                                    if (r.comment != null)
+                                      Text(r.comment!,
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              color: AppColors.greyDark)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
                   const SizedBox(height: 30),
                 ],
               ),
@@ -138,7 +226,7 @@ class _CarDetailScreenState extends State<CarDetailScreen> {
     // سيارة للإيجار فقط -> Book Now
     if (car.listingType == 'rent') {
       return ElevatedButton(
-        onPressed: _bookNow,
+        onPressed: () => _bookNow(car),
         child: Text(
           car.dailyRate != null
               ? 'احجز الآن • BD ${car.dailyRate!.toStringAsFixed(0)}/يوم'
@@ -203,7 +291,7 @@ class _CarDetailScreenState extends State<CarDetailScreen> {
         Expanded(
           flex: 2,
           child: ElevatedButton(
-            onPressed: _bookNow,
+            onPressed: () => _bookNow(car),
             child: const Text('احجز للإيجار'),
           ),
         ),
