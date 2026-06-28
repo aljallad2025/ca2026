@@ -1,30 +1,29 @@
 workflows:
-  android-build:
-    name: Android Build
+  speed-android-ios:
+    name: SPEED Car Rental - Build
     max_build_duration: 60
     environment:
-      node: 20.17.0
-      java: 17
+      flutter: stable
+      vars:
+        PACKAGE_NAME: "com.speed.carrental"
     scripts:
-      - name: Install dependencies
-        script: npm install --legacy-peer-deps
-      - name: Build Angular
-        script: npm run build:prod
-      - name: Setup Android
+      - name: Get Flutter packages
         script: |
-          npx cap add android 2>/dev/null || true
-          npx cap sync android
-      - name: Build APK
+          flutter pub get
+      - name: Analyze
         script: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          flutter analyze || true
+      - name: Build Android APK
+        script: |
+          flutter build apk --release
+      # لبناء iOS لازم Apple Developer account + شهادات موقعة على Codemagic
+      # - name: Build iOS
+      #   script: |
+      #     flutter build ipa --release
     artifacts:
-      - android/app/build/outputs/apk/debug/*.apk
+      - build/**/outputs/**/*.apk
+      - build/**/outputs/**/*.aab
     publishing:
       email:
         recipients:
-          - princealjallad@gmail.com
-        notify:
-          success: true
-          failure: true
+          - your-email@example.com
